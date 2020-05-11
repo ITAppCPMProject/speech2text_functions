@@ -1,13 +1,72 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-
 admin.initializeApp();
 
-express = require("express");
+const express = require("express");
 const app = express();
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
+const Busboy = require("busboy");
+
+const speech = require("@google-cloud/speech");
+const client = new speech.SpeechClient();
 
 app.get("/helloWorld", (req, res) => {
   res.send("Hello from Speech2Text project!");
+});
+
+app.post("/uploadSample", async (req, res) => {
+  const busboy = new Busboy({ headers: req.headers });
+  const tmpdir = os.tmpdir();
+  const fields = {};
+  const uploads = {};
+
+  const fileWrites = [];
+  busboy.on("file", async (fieldname, file, filename) => {
+    console.log(`Processed file ${filename}`);
+    const filepath = path.join(tmpdir, filename);
+    uploads[fieldname] = filepath;
+
+    const writeStream = fs.createWriteStream(filepath);
+    file.pipe(writeStream);
+  });
+
+  busboy.on("finish", async () => {
+    await Promise.all(fileWrites);
+
+    for (const file in uploads) {
+      fs.unlinkSync(uploads[file]);
+    }
+  });
+
+  busboy.end(req.rawBody);
+
+  const config = {
+    encoding: "LINEAR16",
+    sampleRateHertz: 8000,
+    languageCode: "en-US",
+  };
+  const audio = {
+    content: req.rawBody.toString("base64"),
+  };
+  const request = {
+    audio: audio,
+    config: config,
+  };
+
+  const [response] = await client.recognize(request);
+  const transcription = response.results
+    .map((result) => result.alternatives[0].transcript)
+    .join("\n");
+
+  res.send({
+    status: true,
+    message: "File is uploaded",
+    data: {
+      transcription: transcription,
+    },
+  });
 });
 
 exports.api = functions.https.onRequest(app);
