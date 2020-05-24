@@ -30,6 +30,35 @@ app.post("/uploadSample", async (req, res) => {
 
     const writeStream = fs.createWriteStream(filepath);
     file.pipe(writeStream);
+
+    file.on("data", async function (data) {
+      const config = {
+        languageCode: "en-US",
+      };
+      const audio = {
+        content: data.toString("base64"),
+      };
+      const request = {
+        audio: audio,
+        config: config,
+      };
+
+      const [response] = await client.recognize(request);
+      const transcription = response.results
+        .map((result) => result.alternatives[0].transcript)
+        .join("\n");
+      const confidence = response.results.map(
+        (result) => result.alternatives[0].confidence
+      );
+      res.send({
+        status: true,
+        message: "File is uploaded",
+        data: {
+          transcription: transcription,
+          confidence: confidence,
+        },
+      });
+    });
   });
 
   busboy.on("finish", async () => {
@@ -41,35 +70,8 @@ app.post("/uploadSample", async (req, res) => {
   });
 
   busboy.end(req.rawBody);
-
-  const config = {
-    encoding: "LINEAR16",
-    sampleRateHertz: 8000,
-    languageCode: "en-US",
-  };
-  const audio = {
-    content: req.rawBody.toString("base64"),
-  };
-  const request = {
-    audio: audio,
-    config: config,
-  };
-
-  const [response] = await client.recognize(request);
-  const transcription = response.results
-    .map((result) => result.alternatives[0].transcript)
-    .join("\n");
-
-  res.send({
-    status: true,
-    message: "File is uploaded",
-    data: {
-      transcription: transcription,
-    },
-  });
 });
-
-exports.api = functions.https.onRequest(app);
+exports.api = functions.region("europe-west3").https.onRequest(app);
 
 exports.createAudioLabels = functions.firestore
   .document("samples/{sampleid}")
